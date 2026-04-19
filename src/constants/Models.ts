@@ -11,21 +11,20 @@ export interface ModelDef {
 }
 
 export const AVAILABLE_MODELS: ModelDef[] = [
-  // ── Gemma 4 (Google, 2026) ─────────────────────────────────────────────
-  // To enable: verify the bartowski GGUF URL on HuggingFace and uncomment.
-  // {
-  //   id: 'gemma-4-4b',
-  //   name: 'Gemma 4 4B ⭐',
-  //   description: '~2.5 GB · Latest Google · Best quality for assistant tasks',
-  //   sizeBytes: 2_500_000_000,
-  //   downloadUrl:
-  //     'https://huggingface.co/bartowski/gemma-4-4b-it-GGUF/resolve/main/gemma-4-4b-it-Q4_K_M.gguf',
-  //   filename: 'gemma-4-4b-q4.gguf',
-  //   contextLength: 32768,
-  //   recommendedForAssistant: true,
-  // },
+  // ── Gemma 4 E4B (Google, 2026) ────────────────────────────────────────
+  {
+    id: 'gemma-4-e4b',
+    name: 'Gemma 4 E4B ⭐ Best',
+    description: '~2.5 GB · Latest Google · 1M context · Best quality',
+    sizeBytes: 2_500_000_000,
+    downloadUrl:
+      'https://huggingface.co/bartowski/google_gemma-4-E4B-it-GGUF/resolve/main/google_gemma-4-E4B-it-Q4_K_M.gguf',
+    filename: 'gemma-4-e4b-q4.gguf',
+    contextLength: 1_048_576,
+    recommendedForAssistant: true,
+  },
 
-  // ── Gemma 3 4B — best current choice for health/finance/general ────────
+  // ── Gemma 3 4B — proven choice for health/finance/general ─────────────
   {
     id: 'gemma-3-4b',
     name: 'Gemma 3 4B ⭐ Recommended',
@@ -87,5 +86,5 @@ export const EMBEDDING_MODEL: ModelDef = {
   contextLength: 8192,
 };
 
-// Default to 4B — best quality for health/finance assistant tasks
-export const DEFAULT_MODEL_ID = 'gemma-3-4b';
+// Default to Gemma 4 — best quality for health/finance assistant tasks
+export const DEFAULT_MODEL_ID = 'gemma-4-e4b';

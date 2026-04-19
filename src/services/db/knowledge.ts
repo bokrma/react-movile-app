@@ -1,17 +1,6 @@
 import { getDB } from './database';
 import { KBChunk, KBChunkInput } from '@/types/knowledge';
-
-function cosineSimilarity(a: number[], b: number[]): number {
-  if (a.length !== b.length || a.length === 0) return 0;
-  let dot = 0, normA = 0, normB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    normA += a[i] * a[i];
-    normB += b[i] * b[i];
-  }
-  const denom = Math.sqrt(normA) * Math.sqrt(normB);
-  return denom === 0 ? 0 : dot / denom;
-}
+import { hybridScore, tokenize, maximalMarginalRelevance, ScoredChunk, AssistantMode } from '@/services/ai/scoring';
 
 export async function insertChunk(
   input: KBChunkInput,
@@ -19,14 +8,18 @@ export async function insertChunk(
 ): Promise<number> {
   const db = await getDB();
   const result = await db.runAsync(
-    `INSERT INTO kb_chunks (source_name, source_type, content, embedding, created_at, is_pinned)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO kb_chunks
+       (source_name, source_type, content, embedding, created_at, is_pinned, category, importance, tags)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     input.source_name,
     input.source_type,
     input.content,
     JSON.stringify(embedding),
     Date.now(),
     input.is_pinned ? 1 : 0,
+    input.category ?? 'general',
+    input.importance ?? 1,
+    JSON.stringify(input.tags ?? []),
   );
   return result.lastInsertRowId;
 }
@@ -34,36 +27,59 @@ export async function insertChunk(
 export async function getAllChunks(): Promise<KBChunk[]> {
   const db = await getDB();
   const rows = await db.getAllAsync<any>(
-    `SELECT id, source_name, source_type, content, embedding, created_at, is_pinned
-     FROM kb_chunks ORDER BY created_at DESC`,
+    `SELECT * FROM kb_chunks ORDER BY is_pinned DESC, created_at DESC`,
   );
-  return rows.map((r) => ({ ...r, embedding: JSON.parse(r.embedding) }));
+  return rows.map(deserializeChunk);
 }
 
 export async function getPinnedChunks(): Promise<KBChunk[]> {
   const db = await getDB();
   const rows = await db.getAllAsync<any>(
-    `SELECT id, source_name, source_type, content, embedding, created_at, is_pinned
-     FROM kb_chunks WHERE is_pinned = 1`,
+    `SELECT * FROM kb_chunks WHERE is_pinned = 1 ORDER BY importance DESC`,
   );
-  return rows.map((r) => ({ ...r, embedding: JSON.parse(r.embedding) }));
+  return rows.map(deserializeChunk);
 }
 
-export async function searchChunks(
-  queryEmbedding: number[],
-  topK = 5,
-): Promise<KBChunk[]> {
+export async function getMemoryFacts(): Promise<KBChunk[]> {
   const db = await getDB();
   const rows = await db.getAllAsync<any>(
-    `SELECT id, source_name, source_type, content, embedding, created_at, is_pinned
-     FROM kb_chunks WHERE is_pinned = 0`,
+    `SELECT * FROM kb_chunks WHERE source_type = 'memory' ORDER BY importance DESC, created_at DESC LIMIT 30`,
   );
-  const scored = rows.map((r) => {
-    const emb: number[] = JSON.parse(r.embedding);
-    return { ...r, embedding: emb, score: cosineSimilarity(queryEmbedding, emb) };
-  });
-  scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, topK);
+  return rows.map(deserializeChunk);
+}
+
+export async function smartSearch(
+  queryEmbedding: number[],
+  queryText: string,
+  mode: AssistantMode = 'general',
+  topK = 6,
+  minScore = 0.15,
+): Promise<ScoredChunk[]> {
+  const db = await getDB();
+
+  // Load non-pinned chunks. For large KBs, limit candidates to 500 most recent.
+  const rows = await db.getAllAsync<any>(
+    `SELECT * FROM kb_chunks WHERE is_pinned = 0 ORDER BY created_at DESC LIMIT 500`,
+  );
+  const chunks = rows.map(deserializeChunk);
+
+  const queryTokens = tokenize(queryText);
+
+  const scored = chunks
+    .map((chunk) => hybridScore(chunk, queryEmbedding, queryTokens, mode))
+    .filter((s) => s.score >= minScore)
+    .sort((a, b) => b.score - a.score);
+
+  // MMR for diversity — avoid near-duplicate results
+  const diverse = maximalMarginalRelevance(scored, topK, 0.65);
+
+  // Update last_accessed timestamp
+  if (diverse.length > 0) {
+    const ids = diverse.map((s) => s.chunk.id).join(',');
+    await db.runAsync(`UPDATE kb_chunks SET last_accessed = ? WHERE id IN (${ids})`, Date.now());
+  }
+
+  return diverse;
 }
 
 export async function deleteChunk(id: number): Promise<void> {
@@ -76,7 +92,58 @@ export async function deleteChunksBySourceName(sourceName: string): Promise<void
   await db.runAsync(`DELETE FROM kb_chunks WHERE source_name = ?`, sourceName);
 }
 
-export async function updateChunkPinned(id: number, pinned: boolean): Promise<void> {
+export async function upsertMemoryFact(
+  content: string,
+  category: string,
+  embedding: number[],
+  existingChunks: KBChunk[],
+): Promise<void> {
+  const { cosineSimilarity } = await import('@/services/ai/scoring');
   const db = await getDB();
-  await db.runAsync(`UPDATE kb_chunks SET is_pinned = ? WHERE id = ?`, pinned ? 1 : 0, id);
+
+  // Deduplicate: if a very similar fact already exists (>0.92 similarity), update instead of insert
+  const existing = existingChunks.filter(
+    (c) => c.source_type === 'memory' && c.category === category,
+  );
+
+  let duplicateId: number | null = null;
+  for (const c of existing) {
+    if (c.embedding.length > 0 && cosineSimilarity(c.embedding, embedding) > 0.92) {
+      duplicateId = c.id;
+      break;
+    }
+  }
+
+  const now = Date.now();
+  if (duplicateId !== null) {
+    await db.runAsync(
+      `UPDATE kb_chunks SET content = ?, embedding = ?, updated_at = ? WHERE id = ?`,
+      content,
+      JSON.stringify(embedding),
+      now,
+      duplicateId,
+    );
+  } else {
+    await db.runAsync(
+      `INSERT INTO kb_chunks (source_name, source_type, content, embedding, created_at, is_pinned, category, importance, tags)
+       VALUES ('Memory', 'memory', ?, ?, ?, 0, ?, 2, '[]')`,
+      content,
+      JSON.stringify(embedding),
+      now,
+      category,
+    );
+  }
+}
+
+export async function updateSessionSummary(sessionId: number, summary: string): Promise<void> {
+  const db = await getDB();
+  await db.runAsync(`UPDATE chat_sessions SET summary = ? WHERE id = ?`, summary, sessionId);
+}
+
+function deserializeChunk(r: any): KBChunk {
+  return {
+    ...r,
+    embedding: JSON.parse(r.embedding ?? '[]'),
+    tags: JSON.parse(r.tags ?? '[]'),
+  };
 }

@@ -4,14 +4,35 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider, useTheme } from '@/context/ThemeContext';
 import { LLMProvider } from '@/context/LLMContext';
+import {
+  setupNotificationHandler,
+  requestNotificationPermissions,
+  registerBackgroundTask,
+  syncAllReminders,
+} from '@/services/notifications/scheduler';
 
 function AppContent() {
   const { isDark, colors } = useTheme();
 
+  useEffect(() => {
+    setupNotificationHandler();
+    requestNotificationPermissions().then((granted) => {
+      if (granted) {
+        registerBackgroundTask().catch(() => {});
+        syncAllReminders().catch(() => {});
+      }
+    });
+  }, []);
+
   return (
     <SafeAreaProvider>
       <LLMProvider>
-        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: colors.background },
+          }}
+        >
           <Stack.Screen name="(tabs)" />
           <Stack.Screen
             name="chat/[sessionId]"

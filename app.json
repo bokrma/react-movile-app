@@ -18,7 +18,8 @@
       "bundleIdentifier": "com.edgeai.assistant",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Used to record voice notes and transcribe audio.",
-        "NSSpeechRecognitionUsageDescription": "Used to convert your voice to text."
+        "NSSpeechRecognitionUsageDescription": "Used to convert your voice to text.",
+        "UIBackgroundModes": ["fetch", "remote-notification"]
       }
     },
     "android": {
@@ -29,13 +30,23 @@
       "package": "com.edgeai.assistant",
       "permissions": [
         "INTERNET",
-        "RECORD_AUDIO"
+        "RECORD_AUDIO",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE"
       ],
       "edgeToEdgeEnabled": true
     },
     "plugins": [
       "expo-router",
       "expo-sqlite",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#a855f7",
+          "sounds": []
+        }
+      ],
       [
         "@react-native-voice/voice",
         {

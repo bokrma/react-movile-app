@@ -1,0 +1,54 @@
+{
+  "expo": {
+    "name": "Edge AI Assistant",
+    "slug": "edge-ai-assistant",
+    "version": "1.0.0",
+    "scheme": "edgeai",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0a0a0b"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.edgeai.assistant",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Used to record voice notes and transcribe audio.",
+        "NSSpeechRecognitionUsageDescription": "Used to convert your voice to text."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0a0a0b"
+      },
+      "package": "com.edgeai.assistant",
+      "permissions": [
+        "INTERNET",
+        "RECORD_AUDIO"
+      ],
+      "edgeToEdgeEnabled": true
+    },
+    "plugins": [
+      "expo-router",
+      "expo-sqlite",
+      [
+        "@react-native-voice/voice",
+        {
+          "microphonePermission": "Allow Edge AI to access your microphone for voice input.",
+          "speechRecognitionPermission": "Allow Edge AI to transcribe your speech."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
